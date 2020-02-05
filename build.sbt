@@ -6,9 +6,9 @@ import sbt.ScmInfo
 val ProjectScalaVersion: String = "2.12.10"
 val CrossScalaVersions: Seq[String] = Seq("2.10.7", ProjectScalaVersion)
 
-val GlobalSbtVersion: String = "1.3.7"
+val GlobalSbtVersion: String = "1.3.8"
 
-val CrossSbtVersions: Seq[String] = Seq("0.13.17", GlobalSbtVersion)
+val CrossSbtVersions: Seq[String] = Seq("0.13.18", GlobalSbtVersion)
 
 val hedgehogVersion: String = "bd4e0cc785915e0af20d2a7ead5267d49b1de7b1"
 
