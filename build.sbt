@@ -1,80 +1,74 @@
 import ProjectInfo._
-import kevinlee.sbt.SbtCommon._
 import just.semver.SemVer
+import kevinlee.sbt.SbtCommon._
 import sbt.ScmInfo
 
-val ProjectScalaVersion: String = "2.12.10"
-val CrossScalaVersions: Seq[String] = Seq("2.10.7", ProjectScalaVersion)
+Global / sbtVersion := props.GlobalSbtVersion
 
-val GlobalSbtVersion: String = "1.3.8"
-
-val CrossSbtVersions: Seq[String] = Seq("0.13.18", GlobalSbtVersion)
-
-val hedgehogVersion: String = "bd4e0cc785915e0af20d2a7ead5267d49b1de7b1"
-
-val hedgehogRepo: Resolver =
-  "bintray-scala-hedgehog" at "https://dl.bintray.com/hedgehogqa/scala-hedgehog"
-
-val hedgehogLibs: Seq[ModuleID] = Seq(
-    "qa.hedgehog" %% "hedgehog-core" % hedgehogVersion % Test
-  , "qa.hedgehog" %% "hedgehog-runner" % hedgehogVersion % Test
-  , "qa.hedgehog" %% "hedgehog-sbt" % hedgehogVersion % Test
+ThisBuild / organization := "io.kevinlee"
+ThisBuild / scalaVersion := props.ProjectScalaVersion
+ThisBuild / description  := "Lock's Myth - sbt plugin to manage dependency lock"
+ThisBuild / developers   := List(
+  Developer(
+    props.GitHubUsername,
+    "Kevin Lee",
+    "kevin.code@kevinlee.io",
+    url(s"https://github.com/${props.GitHubUsername}")
   )
-
-val justFp: ModuleID = "io.kevinlee" %% "just-fp" % "1.3.5"
-
-val semVer: ModuleID = "io.kevinlee" %% "just-semver" % "0.1.0"
-
+)
+ThisBuild / homepage     := Some(url(s"https://github.com/${props.GitHubUsername}/${props.RepoName}"))
+ThisBuild / scmInfo      :=
+  Some(
+    ScmInfo(
+      url(s"https://github.com/${props.GitHubUsername}/${props.RepoName}"),
+      s"git@github.com:${props.GitHubUsername}/${props.RepoName}.git"
+    )
+  )
+ThisBuild / startYear    := Some(2020)
 
 lazy val root = (project in file("."))
+  .enablePlugins(SbtPlugin)
   .settings(
-    organization := "io.kevinlee"
-  , name         := "sbt-locksmyth"
-  , scalaVersion := ProjectScalaVersion
-  , version      := ProjectVersion
-  , description  := "Lock's Myth - sbt plugin to manage dependency lock"
-  , developers   := List(
-      Developer("Kevin-Lee", "Kevin Lee", "kevin.code@kevinlee.io", url("https://github.com/Kevin-Lee"))
-    )
-  , homepage := Some(url("https://github.com/Kevin-Lee/sbt-locksmyth"))
-  , scmInfo :=
-      Some(ScmInfo(
-        url("https://github.com/Kevin-Lee/sbt-locksmyth")
-      , "git@github.com:Kevin-Lee/sbt-locksmyth.git"
-    ))
+    name                              := props.ProjectName,
+    scalacOptions ++= crossVersionProps(commonScalacOptions, SemVer.parseUnsafe(scalaVersion.value)) {
+      case (SemVer.Major(2), SemVer.Minor(12), _) =>
+        Seq("-Ywarn-unused-import", "-Ywarn-numeric-widen")
+      case (SemVer.Major(2), SemVer.Minor(11), _) =>
+        Seq("-Ywarn-numeric-widen")
+      case _                                      =>
+        Nil
+    },
+    Compile / console / scalacOptions := scalacOptions.value diff List("-Ywarn-unused-import", "-Xfatal-warnings"),
+    Compile / compile / wartremoverErrors ++= commonWarts,
+    Test / compile / wartremoverErrors ++= commonWarts,
+    addCompilerPlugin("org.typelevel" % "kind-projector"     % "0.13.2" cross CrossVersion.full),
+    addCompilerPlugin("com.olegpy"   %% "better-monadic-for" % "0.3.1"),
+    libraryDependencies ++= Seq(libs.semVer) ++ libs.hedgehogLibs,
+    testFrameworks ++= Seq(TestFramework("hedgehog.sbt.Framework")),
+    licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
+    publishMavenStyle                 := true,
+  )
 
-  , startYear := Some(2020)
-  , sbtPlugin := true
-  , sbtVersion in Global := GlobalSbtVersion
-  , crossSbtVersions := CrossSbtVersions
-  , scalacOptions ++= crossVersionProps(commonScalacOptions, SemVer.parseUnsafe(scalaVersion.value)) {
-        case (SemVer.Major(2), SemVer.Minor(12)) =>
-          Seq("-Ywarn-unused-import", "-Ywarn-numeric-widen")
-        case (SemVer.Major(2), SemVer.Minor(11)) =>
-          Seq("-Ywarn-numeric-widen")
-        case _ =>
-          Nil
-      }
-  , scalacOptions in (Compile, console) := scalacOptions.value diff List("-Ywarn-unused-import", "-Xfatal-warnings")
-  , wartremoverErrors in (Compile, compile) ++= commonWarts
-  , wartremoverErrors in (Test, compile) ++= commonWarts
-  , resolvers += hedgehogRepo
-  , addCompilerPlugin("org.typelevel" % "kind-projector" % "0.10.3" cross CrossVersion.binary)
-  , libraryDependencies ++= Seq(justFp, semVer) ++ hedgehogLibs
-  , testFrameworks ++= Seq(TestFramework("hedgehog.sbt.Framework"))
+lazy val props = new {
 
-  , licenses += ("MIT", url("http://opensource.org/licenses/MIT"))
-  , publishMavenStyle := false
+  final val GitHubUsername = "Kevin-Lee"
+  final val RepoName       = "sbt-locksmyth"
+  final val ProjectName    = RepoName
 
-  , bintrayPackageLabels := Seq("sbt", "plugin")
-  , bintrayVcsUrl := Some("""git@github.com:Kevin-Lee/sbt-locksmyth.git""")
-  , bintrayRepository := "sbt-plugins"
+  final val ProjectScalaVersion = "2.12.12"
+  final val GlobalSbtVersion    = "1.3.8"
+  final val hedgehogVersion     = "0.7.0"
 
-  , coverageHighlighting := (CrossVersion.partialVersion(scalaVersion.value) match {
-      case Some((2, 10)) =>
-        false
-      case _ =>
-        true
-    })
+}
 
-)
+lazy val libs = new {
+
+  lazy val hedgehogLibs: Seq[ModuleID] = Seq(
+    "qa.hedgehog" %% "hedgehog-core"   % props.hedgehogVersion % Test,
+    "qa.hedgehog" %% "hedgehog-runner" % props.hedgehogVersion % Test,
+    "qa.hedgehog" %% "hedgehog-sbt"    % props.hedgehogVersion % Test
+  )
+
+  lazy val semVer: ModuleID = "io.kevinlee" %% "just-semver" % "0.3.0"
+
+}

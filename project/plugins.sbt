@@ -1,11 +1,10 @@
 logLevel := sbt.Level.Warn
 
-addSbtPlugin("org.foundweekends" % "sbt-bintray" % "0.5.4")
-
 addSbtPlugin("org.wartremover" % "sbt-wartremover" % "2.2.1")
 
-addSbtPlugin("org.scoverage" % "sbt-scoverage" % "1.5.1")
+addSbtPlugin("com.geirsson" % "sbt-ci-release" % "1.5.7")
 
-addSbtPlugin("org.scoverage" % "sbt-coveralls" % "1.2.7")
-
-addSbtPlugin("io.kevinlee" % "sbt-devoops" % "1.0.3")
+val sbtDevOopsVersion = "2.13.0"
+addSbtPlugin("io.kevinlee" % "sbt-devoops-scala"     % sbtDevOopsVersion)
+addSbtPlugin("io.kevinlee" % "sbt-devoops-sbt-extra" % sbtDevOopsVersion)
+addSbtPlugin("io.kevinlee" % "sbt-devoops-github"    % sbtDevOopsVersion)
