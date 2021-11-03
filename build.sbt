@@ -56,7 +56,7 @@ lazy val props = new {
   final val ProjectName    = RepoName
 
   final val ProjectScalaVersion = "2.12.12"
-  final val GlobalSbtVersion    = "1.3.8"
+  final val GlobalSbtVersion    = "1.4.0"
   final val hedgehogVersion     = "0.7.0"
 
 }

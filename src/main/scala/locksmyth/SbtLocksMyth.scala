@@ -4,7 +4,6 @@ import CommonDef._
 import just.semver.{ParseError, SemVer}
 import locksmyth.dependency._
 import sbt.Keys._
-import sbt.plugins.JvmPlugin
 import sbt.{AutoPlugin, Def, ModuleID, PluginTrigger, plugins, _}
 
 import java.time.{OffsetDateTime, ZoneOffset}
@@ -14,8 +13,8 @@ import scala.annotation.tailrec
   */
 object SbtLocksMyth extends AutoPlugin {
 
-  override def requires: JvmPlugin.type = plugins.JvmPlugin
-  override def trigger: PluginTrigger   = allRequirements
+  override def requires: Plugins      = plugins.JvmPlugin
+  override def trigger: PluginTrigger = allRequirements
 
   object autoImport {
 
@@ -163,10 +162,13 @@ object SbtLocksMyth extends AutoPlugin {
       configsToModuleGraphsSbt       :=
         configsForDependencyList
           .map(config =>
-            update
+            Exposure
+              ._dependencyTreeIgnoreMissingUpdate
               .value
               .configuration(config)
-              .map(report => (config, SbtUpdateReport.fromConfigurationReport(report, dependencyCrossProjectId.value)))
+              .map { report =>
+                (config, SbtUpdateReport.fromConfigurationReport(report, dependencyCrossProjectId.value))
+              }
               .getOrElse((config, ModuleGraph.empty))
           ),
       configsToModuleGraphs          := {
@@ -177,7 +179,6 @@ object SbtLocksMyth extends AutoPlugin {
         else
           moduleGraph
       },
-      update / updateConfiguration   := updateConfiguration.value.withMissingOk(true),
       Global / filterOutScalaLibrary := true,
       projectDependencyList          := ProjectDependencies(
         ProjectName(name.value),
