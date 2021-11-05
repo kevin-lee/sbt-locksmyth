@@ -159,6 +159,7 @@ object SbtLocksMyth extends AutoPlugin {
   override def projectSettings: Seq[Def.Setting[_]] =
     Seq(
       dependencyCrossProjectId       := sbt.CrossVersion(scalaVersion.value, scalaBinaryVersion.value)(projectID.value),
+      configsToModuleGraphsSbt / updateOptions := updateOptions.value.withCachedResolution(false),
       configsToModuleGraphsSbt       :=
         configsForDependencyList
           .map(config =>
@@ -171,6 +172,7 @@ object SbtLocksMyth extends AutoPlugin {
               }
               .getOrElse((config, ModuleGraph.empty))
           ),
+      configsToModuleGraphs / updateOptions := updateOptions.value.withCachedResolution(false),
       configsToModuleGraphs          := {
         val moduleGraph = configsToModuleGraphsSbt.value
 
@@ -180,6 +182,7 @@ object SbtLocksMyth extends AutoPlugin {
           moduleGraph
       },
       Global / filterOutScalaLibrary := true,
+      projectDependencyList / updateOptions := updateOptions.value.withCachedResolution(false),
       projectDependencyList          := ProjectDependencies(
         ProjectName(name.value),
         for {
@@ -223,8 +226,9 @@ object SbtLocksMyth extends AutoPlugin {
 
             log.info(s"Lock written: $lockFile")
           }
+        } else {
+          ()
         }
-        ()
       },
       removeLocksMyth                := {
         if (isLockBaseProject.value) {
