@@ -2,6 +2,7 @@ package locksmyth.dependency
 
 import just.semver.SemVer
 import locksmyth.CommonDef._
+import locksmyth.dependency.ConflictableModuleId.UsageStatus
 import locksmyth.util.SbtUtils
 import sbt.{Compile, Configuration, Provided, Test}
 
@@ -31,22 +32,36 @@ sealed trait ConflictableModuleId
 
 object ConflictableModuleId {
 
-  final case class ModuleIdNoConflictId(moduleId: ModuleId) extends ConflictableModuleId
+  final case class ModuleIdNoConflictId(moduleId: ModuleId, usageStatus: UsageStatus) extends ConflictableModuleId
 
   final case class ModuleIdConflictId(
     moduleId: ModuleId,
+    usageStatus: UsageStatus,
     callers: Vector[ModuleId]
   ) extends ConflictableModuleId
 
-  def noConflict(moduleId: ModuleId): ConflictableModuleId =
-    ModuleIdNoConflictId(moduleId)
+  def noConflict(moduleId: ModuleId, usageStatus: UsageStatus): ConflictableModuleId =
+    ModuleIdNoConflictId(moduleId, usageStatus)
 
-  def conflict(moduleId: ModuleId, callers: Vector[ModuleId]): ConflictableModuleId =
-    ModuleIdConflictId(moduleId, callers)
+  def conflict(moduleId: ModuleId, usageStatus: UsageStatus, callers: Vector[ModuleId]): ConflictableModuleId =
+    ModuleIdConflictId(moduleId, usageStatus, callers)
+
+  implicit final class ConflictableModuleIdOps(private val conflictableModuleId: ConflictableModuleId) extends AnyVal {
+
+    def isInUse: Boolean = !isEvicted
+
+    def isEvicted: Boolean = conflictableModuleId match {
+      case ConflictableModuleId.ModuleIdNoConflictId(_, UsageStatus.Evicted)  => true
+      case ConflictableModuleId.ModuleIdNoConflictId(_, UsageStatus.InUse)    => false
+      case ConflictableModuleId.ModuleIdConflictId(_, UsageStatus.Evicted, _) => true
+      case ConflictableModuleId.ModuleIdConflictId(_, UsageStatus.InUse, _)   => false
+    }
+
+  }
 
   def toModuleId(conflictableModuleId: ConflictableModuleId): ModuleId = conflictableModuleId match {
-    case ModuleIdNoConflictId(moduleId)  => moduleId
-    case ModuleIdConflictId(moduleId, _) => moduleId
+    case ModuleIdNoConflictId(moduleId, _)  => moduleId
+    case ModuleIdConflictId(moduleId, _, _) => moduleId
   }
 
   def sortByModuleId(modules: Vector[ConflictableModuleId]): Vector[ConflictableModuleId] =
@@ -54,13 +69,44 @@ object ConflictableModuleId {
 
   def renderWithConfig(conflictableModuleId: ConflictableModuleId, config: Configuration): String =
     conflictableModuleId match {
-      case ModuleIdConflictId(moduleId, callers) =>
-        s"""# Used by ${callers.map(_.idString).mkString("[", ", ", "]")}
+      case ModuleIdConflictId(moduleId, evicted, callers) =>
+        s"""# Used by ${callers.map(_.idString).mkString("[", ", ", "]")} (${evicted.render})
            |* ${ModuleId.renderWithConfig(moduleId, config)}""".stripMargin
 
-      case ModuleIdNoConflictId(moduleId) =>
+      case ModuleIdNoConflictId(moduleId, _) =>
         ModuleId.renderWithConfig(moduleId, config)
     }
+
+  def renderNonEvictedWithConfig(conflictableModuleId: ConflictableModuleId, config: Configuration): String =
+    conflictableModuleId match {
+      case ModuleIdConflictId(moduleId, UsageStatus.InUse, _) =>
+        ModuleId.renderWithConfig(moduleId, config)
+      case ModuleIdConflictId(_, UsageStatus.Evicted, _)      =>
+        ""
+      case ModuleIdNoConflictId(moduleId, UsageStatus.InUse)  =>
+        ModuleId.renderWithConfig(moduleId, config)
+      case ModuleIdNoConflictId(_, UsageStatus.Evicted)       =>
+        ""
+    }
+
+  sealed trait UsageStatus
+  object UsageStatus {
+    case object InUse   extends UsageStatus
+    case object Evicted extends UsageStatus
+
+    def inUse: UsageStatus   = InUse
+    def evicted: UsageStatus = Evicted
+
+    def evictedIfTrue(evicted: Boolean): UsageStatus = if (evicted) UsageStatus.evicted else UsageStatus.inUse
+
+    implicit final class UsageStatusOps(private val usageStatus: UsageStatus) extends AnyVal {
+      def render: String = usageStatus match {
+        case UsageStatus.InUse   => "use"
+        case UsageStatus.Evicted => "evicted"
+      }
+    }
+  }
+
 }
 
 final case class Edge(caller: ModuleId, module: ModuleId)
@@ -119,6 +165,15 @@ final case class UniqueDependencies(
 
 object UniqueDependencies {
 
+  implicit final class UniqueDependenciesOps(private val uniqueDependencies: UniqueDependencies) extends AnyVal {
+    def filter(f: ConflictableModuleId => Boolean): UniqueDependencies =
+      UniqueDependencies(
+        compile = uniqueDependencies.compile.filter(f),
+        test = uniqueDependencies.test.filter(f),
+        provided = uniqueDependencies.provided.filter(f),
+      )
+  }
+
   def projectNameWithScalaVersion(projectName: ProjectName, scalaVersion: SemVer): String = {
     val scalaBinaryVersion = SbtUtils.getScalaBinaryVersion(scalaVersion)
     s"${projectName.projectName}_$scalaBinaryVersion"
@@ -134,14 +189,13 @@ object UniqueDependencies {
     config: Configuration,
     projectName: String,
     configDependenciesList: Vector[ConfigDependencies]
-  ): Vector[ModuleId] =
+  ): Vector[(ModuleId, Module)] =
     configDependenciesList
       .find(_.config === config)
       .map(configDependencies =>
         configDependencies
           .dependencies
-          .keys
-          .filterNot(moduleId => moduleId.name === projectName)
+          .filterNot { case (moduleId, _) => moduleId.name === projectName }
           .toVector
       )
       .getOrElse(Vector.empty)
@@ -164,11 +218,20 @@ object UniqueDependencies {
     val providedDeps = moduleIdsForConfig(Provided, projectName, configDependencies)
 
     val filteredProvidedDeps =
-      providedDeps.filterNot(moduleId => compileDeps.exists(_.keyString === moduleId.keyString))
+      providedDeps.filterNot {
+        case (providedModuleId, _) =>
+          compileDeps.exists { case (compileModuleId, _) => compileModuleId.keyString === providedModuleId.keyString }
+      }
     val filteredTestDeps     =
-      testDeps.filterNot { moduleId =>
-        filteredProvidedDeps.exists(_.keyString === moduleId.keyString) ||
-        compileDeps.exists(_.keyString === moduleId.keyString)
+      testDeps.filterNot {
+        case (testModuleId, _) =>
+          filteredProvidedDeps.exists {
+            case (filteredProvidedModuleId, _) =>
+              filteredProvidedModuleId.keyString === testModuleId.keyString
+          } || compileDeps.exists {
+            case (compileModuleId, _) =>
+              compileModuleId.keyString === testModuleId.keyString
+          }
       }
 
     val compileModuleIds =
@@ -189,28 +252,38 @@ object UniqueDependencies {
 
   private def moduleIdsWithConflictInfo(
     compileEdges: Vector[Edge],
-    compileDeps: Vector[ModuleId]
+    compileDeps: Vector[(ModuleId, Module)]
   ): Vector[ConflictableModuleId] = {
     val compileDepsConflicts = filterConflicts(compileDeps)
     for {
-      dep <- compileDeps
+      (depModuleId, depModule) <- compileDeps
       moduleIdPlus =
-        if (compileDepsConflicts.exists { case (orgName, _) => orgName === UniqueDependencies.orgAndName(dep) })
-          ConflictableModuleId.conflict(dep, compileEdges.filter(edge => edge.module === dep).map(edge => edge.caller))
+        if (compileDepsConflicts.exists { case (orgName, _) => orgName === UniqueDependencies.orgAndName(depModuleId) })
+          ConflictableModuleId.conflict(
+            depModuleId,
+            UsageStatus.evictedIfTrue(depModule.isEvicted),
+            compileEdges.filter(edge => edge.module === depModuleId).map(edge => edge.caller)
+          )
         else
-          ConflictableModuleId.noConflict(dep)
+          ConflictableModuleId.noConflict(depModuleId, UsageStatus.evictedIfTrue(depModule.isEvicted))
     } yield moduleIdPlus
   }
 
-  private def filterConflicts(dependencies: Vector[ModuleId]): Map[String, Vector[ModuleId]] =
+  private def filterConflicts(dependencies: Vector[(ModuleId, Module)]): Map[String, Vector[(ModuleId, Module)]] =
     dependencies
-      .groupBy(moduleId => UniqueDependencies.orgAndName(moduleId))
+      .groupBy { case (moduleId, _) => UniqueDependencies.orgAndName(moduleId) }
       .filter { case (_, moduleIds) => moduleIds.length > 1 }
 
-  def renderElems(uniqueDependencies: UniqueDependencies): Vector[String] = {
+  def renderElems(uniqueDependencies: UniqueDependencies): Vector[String] =
     uniqueDependencies.compile.map(moduleId => ConflictableModuleId.renderWithConfig(moduleId, Compile)) ++
       uniqueDependencies.test.map(moduleId => ConflictableModuleId.renderWithConfig(moduleId, Test)) ++
       uniqueDependencies.provided.map(moduleId => ConflictableModuleId.renderWithConfig(moduleId, Provided))
-  }
+
+  def renderNonEvictedElems(uniqueDependencies: UniqueDependencies): Vector[String] =
+    (
+      uniqueDependencies.compile.map(moduleId => ConflictableModuleId.renderNonEvictedWithConfig(moduleId, Compile)) ++
+        uniqueDependencies.test.map(moduleId => ConflictableModuleId.renderNonEvictedWithConfig(moduleId, Test)) ++
+        uniqueDependencies.provided.map(moduleId => ConflictableModuleId.renderNonEvictedWithConfig(moduleId, Provided))
+    ).filter(_.nonEmpty)
 
 }

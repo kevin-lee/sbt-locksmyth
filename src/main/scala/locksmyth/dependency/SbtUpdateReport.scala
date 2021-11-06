@@ -1,7 +1,7 @@
 package locksmyth.dependency
 
-import sbt._
 import locksmyth.CommonDef._
+import sbt._
 
 /** @author Kevin Lee
   */
