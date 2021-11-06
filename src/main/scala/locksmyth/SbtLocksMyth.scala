@@ -4,7 +4,7 @@ import CommonDef._
 import just.semver.{ParseError, SemVer}
 import locksmyth.dependency._
 import sbt.Keys._
-import sbt.{AutoPlugin, Def, ModuleID, PluginTrigger, plugins, _}
+import sbt._
 
 import java.time.Clock
 import scala.annotation.tailrec
@@ -61,6 +61,7 @@ object SbtLocksMyth extends AutoPlugin {
       )
 
     val writeLocksMyth: TaskKey[Unit] = taskKey[Unit]("Write lock's myth file.")
+    val writeNonEvictedLocksMyth: TaskKey[Unit] = taskKey[Unit]("Write lock's myth file with no evicted dependencies.")
     val removeLocksMyth: TaskKey[Unit] = taskKey[Unit]("Remove lock's myth file.")
 
     def loadLockFile(file: File): Seq[ModuleID] = {
@@ -194,59 +195,73 @@ object SbtLocksMyth extends AutoPlugin {
         } yield ConfigDependencies(config, graphs, graph.edges.toVector)
       ),
       listDependencies := {
-        val log = sLog.value
-        handleDependencies(projectDependencyList.value, scalaVersion.value) { (projectName, uniqueDependencies) =>
-          val deps = UniqueDependencies.renderElems(uniqueDependencies)
-          val content =
-            s"""# Dependencies
-               |===
-               |## Project: ${projectName.projectName}
-               |---
-               |${deps.mkString("\n")}
-               |===
-               |""".stripMargin
-          log.debug(content)
-          println(content)
-        }
+        val log: Logger = sLog.value
+        val thisProjectName = ProjectName(name.value)
+        writeLocksMythWith(thisProjectName, projectDependencyList.value, scalaVersion.value)(
+          uniqueDependencies =>
+            renderDependencyList(thisProjectName, uniqueDependencies)(UniqueDependencies.renderElems),
+          { content =>
+            log.debug(content)
+            println(content)
+
+          }
+        )
       },
       listNonEvictedDependencies := {
         val log = sLog.value
-        handleDependencies(projectDependencyList.value, scalaVersion.value) { (projectName, uniqueDependencies) =>
-          val deps = UniqueDependencies.renderNonEvictedElems(uniqueDependencies)
-          val content =
-            s"""# Dependencies
-               |===
-               |## Project: ${projectName.projectName}
-               |---
-               |${deps.mkString("\n")}
-               |===
-               |""".stripMargin
-          log.debug(content)
-          println(content)
-        }
+        val thisProjectName = ProjectName(name.value)
+        writeLocksMythWith(thisProjectName, projectDependencyList.value, scalaVersion.value)(
+          uniqueDependencies =>
+            renderDependencyList(thisProjectName, uniqueDependencies)(UniqueDependencies.renderNonEvictedElems),
+          { content =>
+            log.debug(content)
+            println(content)
+
+          }
+        )
       },
       sbtLocksMythPath := "sbt-locksmyth.txt",
       isLockBaseProject := false,
       writeLocksMyth := {
-        val log = sLog.value
+        val log: Logger = sLog.value
+        val isItLockBaseProject = isLockBaseProject.value
         val projectDeps = projectDependencyList.value
-        if (isLockBaseProject.value) {
-          val lockFile = getSbtLockPath(sbtLocksMythPath.value, sLog.value)
+
+        if (isItLockBaseProject) {
           val thisProjectName = ProjectName(name.value)
-          handleProjectDependencies(thisProjectName, projectDeps, scalaVersion.value) { (_, uniqueDependencies) =>
-            val deps = UniqueDependencies.renderElems(uniqueDependencies)
-            val now = Clock.systemUTC().instant()
-            val epochMillis = now.toEpochMilli
-            val lockContent =
-              s"""# This is an auto-generated file generated at $now ($epochMillis).
-                 |# Please do not modify it unless you need to solve version conflicts.
-                 |${deps.mkString("\n")}""".stripMargin
+          val locksMythPath = sbtLocksMythPath.value
+          val scalaV = scalaVersion.value
+          val lockFile = getSbtLockPath(locksMythPath, log)
+          writeLocksMythWith(thisProjectName, projectDeps, scalaV)(
+            renderUniqueDependenciesForFile(_, UniqueDependencies.renderElems)(Clock.systemUTC()),
+            { lockContent =>
+              log.debug(lockContent)
+              IO.write(lockFile, lockContent)
+              log.info(s"Lock written: $lockFile")
+            }
+          )
+        } else {
+          ()
+        }
+      },
+      writeNonEvictedLocksMyth := {
+        val log: Logger = sLog.value
+        val isItLockBaseProject = isLockBaseProject.value
+        val projectDeps = projectDependencyList.value
 
-            log.debug(lockContent)
-            IO.write(lockFile, lockContent)
-
-            log.info(s"Lock written: $lockFile")
-          }
+        if (isItLockBaseProject) {
+          val thisProjectName = ProjectName(name.value)
+          val locksMythPath = sbtLocksMythPath.value
+          val scalaV = scalaVersion.value
+          val lockFile = getSbtLockPath(locksMythPath, log)
+          writeLocksMythWith(thisProjectName, projectDeps, scalaV)(
+            renderUniqueDependenciesForFile(_, UniqueDependencies.renderNonEvictedElems)(Clock.systemUTC()),
+            { lockContent =>
+              log.debug(lockContent)
+              IO.write(lockFile, lockContent)
+              log.info(s"Lock written: $lockFile")
+            }
+          )
         } else {
           ()
         }
@@ -277,4 +292,40 @@ object SbtLocksMyth extends AutoPlugin {
         }
       }
     )
+
+  def renderUniqueDependenciesForFile(
+    uniqueDependencies: UniqueDependencies,
+    renderer: UniqueDependencies => Vector[String]
+  )(clock: Clock): String = {
+    val now = clock.instant()
+    val epochMillis = now.toEpochMilli
+    val deps = renderer(uniqueDependencies)
+    s"""# This is an auto-generated file generated at $now ($epochMillis).
+       |# Please do not modify it unless you need to solve version conflicts.
+       |${deps.mkString("\n")}""".stripMargin
+  }
+
+  def renderDependencyList(projectName: ProjectName, uniqueDependencies: UniqueDependencies)(
+    renderer: UniqueDependencies => Vector[String]
+  ): String = {
+    val deps = renderer(uniqueDependencies)
+    s"""# Dependencies
+       |===
+       |## Project: ${projectName.projectName}
+       |---
+       |${deps.mkString("\n")}
+       |===
+       |""".stripMargin
+  }
+
+  def writeLocksMythWith(
+    projectName: ProjectName,
+    projectDeps: ProjectDependencies,
+    scalaVersion: String
+  )(renderer: UniqueDependencies => String, writer: String => Unit): Unit =
+    handleProjectDependencies(projectName, projectDeps, scalaVersion) { (_, uniqueDependencies) =>
+      val content = renderer(uniqueDependencies)
+      writer(content)
+    }
+
 }
