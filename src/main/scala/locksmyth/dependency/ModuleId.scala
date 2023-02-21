@@ -22,8 +22,8 @@ object ModuleId {
 
   sealed trait ParseError
   object ParseError {
-    final case class ConflictError(moduleId: ModuleId)                   extends ParseError
-    final case class InvalidModuleId(moduleId: String)                   extends ParseError
+    final case class ConflictError(moduleId: ModuleId) extends ParseError
+    final case class InvalidModuleId(moduleId: String) extends ParseError
     final case class UnsupportedConfig(config: String, moduleId: String) extends ParseError
 
     def conflictError(moduleId: ModuleId): ParseError                   = ConflictError(moduleId)

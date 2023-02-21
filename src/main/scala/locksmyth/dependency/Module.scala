@@ -51,16 +51,16 @@ object ConflictableModuleId {
     def isInUse: Boolean = !isEvicted
 
     def isEvicted: Boolean = conflictableModuleId match {
-      case ConflictableModuleId.ModuleIdNoConflictId(_, UsageStatus.Evicted)  => true
-      case ConflictableModuleId.ModuleIdNoConflictId(_, UsageStatus.InUse)    => false
+      case ConflictableModuleId.ModuleIdNoConflictId(_, UsageStatus.Evicted) => true
+      case ConflictableModuleId.ModuleIdNoConflictId(_, UsageStatus.InUse) => false
       case ConflictableModuleId.ModuleIdConflictId(_, UsageStatus.Evicted, _) => true
-      case ConflictableModuleId.ModuleIdConflictId(_, UsageStatus.InUse, _)   => false
+      case ConflictableModuleId.ModuleIdConflictId(_, UsageStatus.InUse, _) => false
     }
 
   }
 
   def toModuleId(conflictableModuleId: ConflictableModuleId): ModuleId = conflictableModuleId match {
-    case ModuleIdNoConflictId(moduleId, _)  => moduleId
+    case ModuleIdNoConflictId(moduleId, _) => moduleId
     case ModuleIdConflictId(moduleId, _, _) => moduleId
   }
 
@@ -81,17 +81,17 @@ object ConflictableModuleId {
     conflictableModuleId match {
       case ModuleIdConflictId(moduleId, UsageStatus.InUse, _) =>
         ModuleId.renderWithConfig(moduleId, config)
-      case ModuleIdConflictId(_, UsageStatus.Evicted, _)      =>
+      case ModuleIdConflictId(_, UsageStatus.Evicted, _) =>
         ""
-      case ModuleIdNoConflictId(moduleId, UsageStatus.InUse)  =>
+      case ModuleIdNoConflictId(moduleId, UsageStatus.InUse) =>
         ModuleId.renderWithConfig(moduleId, config)
-      case ModuleIdNoConflictId(_, UsageStatus.Evicted)       =>
+      case ModuleIdNoConflictId(_, UsageStatus.Evicted) =>
         ""
     }
 
   sealed trait UsageStatus
   object UsageStatus {
-    case object InUse   extends UsageStatus
+    case object InUse extends UsageStatus
     case object Evicted extends UsageStatus
 
     def inUse: UsageStatus   = InUse
@@ -101,7 +101,7 @@ object ConflictableModuleId {
 
     implicit final class UsageStatusOps(private val usageStatus: UsageStatus) extends AnyVal {
       def render: String = usageStatus match {
-        case UsageStatus.InUse   => "use"
+        case UsageStatus.InUse => "use"
         case UsageStatus.Evicted => "evicted"
       }
     }

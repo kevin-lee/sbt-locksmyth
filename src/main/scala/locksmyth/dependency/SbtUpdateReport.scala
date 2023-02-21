@@ -18,7 +18,8 @@ object SbtUpdateReport {
 
     def moduleEdge(chosenVersion: Option[String])(report: ModuleReport): (Module, Seq[Edge]) = {
       val evictedByVersion = if (report.evicted) chosenVersion else None
-      val jarFile          =
+
+      val jarFile =
         report
           .artifacts
           .find {
