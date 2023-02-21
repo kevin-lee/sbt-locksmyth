@@ -13,7 +13,7 @@ import scala.annotation.tailrec
   */
 object SbtLocksMyth extends AutoPlugin {
 
-  override def requires: Plugins = plugins.JvmPlugin
+  override def requires: Plugins      = plugins.JvmPlugin
   override def trigger: PluginTrigger = allRequirements
 
   object autoImport {
@@ -60,9 +60,9 @@ object SbtLocksMyth extends AutoPlugin {
           "might not be suitable for the other projects. [default: false]"
       )
 
-    val writeLocksMyth: TaskKey[Unit] = taskKey[Unit]("Write lock's myth file.")
+    val writeLocksMyth: TaskKey[Unit]           = taskKey[Unit]("Write lock's myth file.")
     val writeNonEvictedLocksMyth: TaskKey[Unit] = taskKey[Unit]("Write lock's myth file with no evicted dependencies.")
-    val removeLocksMyth: TaskKey[Unit] = taskKey[Unit]("Remove lock's myth file.")
+    val removeLocksMyth: TaskKey[Unit]          = taskKey[Unit]("Remove lock's myth file.")
 
     def loadLockFile(file: File): Seq[ModuleID] = {
       @tailrec
@@ -71,14 +71,14 @@ object SbtLocksMyth extends AutoPlugin {
         errors: Vector[ModuleId.ParseError],
         modules: Vector[ModuleID]
       ): Either[Vector[ModuleId.ParseError], Vector[ModuleID]] = ls match {
-        case Nil          =>
+        case Nil =>
           if (errors.isEmpty) Right(modules) else Left(errors)
         case line :: rest =>
           if (line.trim.startsWith("#"))
             collect(rest, errors, modules)
           else {
             ModuleId.parse(line) match {
-              case Left(error)           =>
+              case Left(error) =>
                 collect(rest, errors :+ error, modules)
               case Right(configModuleId) =>
                 collect(rest, errors, modules :+ ModuleId.toModuleID(configModuleId))
@@ -88,7 +88,7 @@ object SbtLocksMyth extends AutoPlugin {
 
       val lines = IO.readLines(file, IO.utf8)
       collect(lines, Vector.empty, Vector.empty) match {
-        case Left(errors)   =>
+        case Left(errors) =>
           throwMessageOnlyException(
             s"""Conflict found in the sbt lock file at $file
                |For more details, please check out the comments in the lock file.
@@ -107,6 +107,7 @@ object SbtLocksMyth extends AutoPlugin {
         .props
         .get(SbtLocksMythPath)
         .getOrElse(sys.env.getOrElse(SbtLocksMythPath, p))
+
       val lockFile = file(path).getCanonicalFile
       if (!lockFile.exists) {
         log.debug(s">>> The sbt lock file does not found at $path / ${lockFile.getPath}.")
@@ -146,7 +147,7 @@ object SbtLocksMyth extends AutoPlugin {
       case Right(semVer) =>
         val ProjectDependencies(projectName, configDependencies) = projectDependencies
         val projectNameWithScalaVersion = UniqueDependencies.projectNameWithScalaVersion(projectName, semVer)
-        val uniqueDependencies =
+        val uniqueDependencies          =
           UniqueDependencies.toUniqueDependencies(projectNameWithScalaVersion, configDependencies)
         handler(projectName, uniqueDependencies)
     }
@@ -195,7 +196,7 @@ object SbtLocksMyth extends AutoPlugin {
         } yield ConfigDependencies(config, graphs, graph.edges.toVector)
       ),
       listDependencies := {
-        val log: Logger = sLog.value
+        val log: Logger     = sLog.value
         val thisProjectName = ProjectName(name.value)
         writeLocksMythWith(thisProjectName, projectDependencyList.value, scalaVersion.value)(
           uniqueDependencies =>
@@ -208,7 +209,7 @@ object SbtLocksMyth extends AutoPlugin {
         )
       },
       listNonEvictedDependencies := {
-        val log = sLog.value
+        val log             = sLog.value
         val thisProjectName = ProjectName(name.value)
         writeLocksMythWith(thisProjectName, projectDependencyList.value, scalaVersion.value)(
           uniqueDependencies =>
@@ -223,15 +224,15 @@ object SbtLocksMyth extends AutoPlugin {
       sbtLocksMythPath := "sbt-locksmyth.txt",
       isLockBaseProject := false,
       writeLocksMyth := {
-        val log: Logger = sLog.value
+        val log: Logger         = sLog.value
         val isItLockBaseProject = isLockBaseProject.value
-        val projectDeps = projectDependencyList.value
+        val projectDeps         = projectDependencyList.value
 
         if (isItLockBaseProject) {
           val thisProjectName = ProjectName(name.value)
-          val locksMythPath = sbtLocksMythPath.value
-          val scalaV = scalaVersion.value
-          val lockFile = getSbtLockPath(locksMythPath, log)
+          val locksMythPath   = sbtLocksMythPath.value
+          val scalaV          = scalaVersion.value
+          val lockFile        = getSbtLockPath(locksMythPath, log)
           writeLocksMythWith(thisProjectName, projectDeps, scalaV)(
             renderUniqueDependenciesForFile(_, UniqueDependencies.renderElems)(Clock.systemUTC()),
             { lockContent =>
@@ -245,15 +246,15 @@ object SbtLocksMyth extends AutoPlugin {
         }
       },
       writeNonEvictedLocksMyth := {
-        val log: Logger = sLog.value
+        val log: Logger         = sLog.value
         val isItLockBaseProject = isLockBaseProject.value
-        val projectDeps = projectDependencyList.value
+        val projectDeps         = projectDependencyList.value
 
         if (isItLockBaseProject) {
           val thisProjectName = ProjectName(name.value)
-          val locksMythPath = sbtLocksMythPath.value
-          val scalaV = scalaVersion.value
-          val lockFile = getSbtLockPath(locksMythPath, log)
+          val locksMythPath   = sbtLocksMythPath.value
+          val scalaV          = scalaVersion.value
+          val lockFile        = getSbtLockPath(locksMythPath, log)
           writeLocksMythWith(thisProjectName, projectDeps, scalaV)(
             renderUniqueDependenciesForFile(_, UniqueDependencies.renderNonEvictedElems)(Clock.systemUTC()),
             { lockContent =>
@@ -279,8 +280,8 @@ object SbtLocksMyth extends AutoPlugin {
         ()
       },
       dependencyOverrides := {
-        val log = sLog.value
-        val lockFile = getSbtLockPath(sbtLocksMythPath.value, sLog.value)
+        val log         = sLog.value
+        val lockFile    = getSbtLockPath(sbtLocksMythPath.value, sLog.value)
         val projectName = name.value
 
         if (lockFile.exists && lockFile.isFile) {
@@ -297,9 +298,9 @@ object SbtLocksMyth extends AutoPlugin {
     uniqueDependencies: UniqueDependencies,
     renderer: UniqueDependencies => Vector[String]
   )(clock: Clock): String = {
-    val now = clock.instant()
+    val now         = clock.instant()
     val epochMillis = now.toEpochMilli
-    val deps = renderer(uniqueDependencies)
+    val deps        = renderer(uniqueDependencies)
     s"""# This is an auto-generated file generated at $now ($epochMillis).
        |# Please do not modify it unless you need to solve version conflicts.
        |${deps.mkString("\n")}""".stripMargin
